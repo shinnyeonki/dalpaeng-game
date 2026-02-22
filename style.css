@@ -1,19 +1,17 @@
-/* Custom Scrollbar for Snail Config list */
+/* 커스텀 스크롤바 (밝은 테마용) */
 .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
 }
-
 .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+    background: #f1f5f9; /* slate-100 */
+    border-radius: 10px;
 }
-
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
+    background: #cbd5e1; /* slate-300 */
+    border-radius: 10px;
 }
-
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: #94a3b8; /* slate-400 */
 }
 
 #canvas-container {
@@ -21,14 +19,26 @@
     height: 100vh;
 }
 
-.hidden {
-    display: none !important;
+/* 라디오 버튼 스타일 (밝은 테마용) */
+.snail-type:checked + .type-btn {
+    opacity: 1 !important;
+    border-color: #3b82f6 !important; /* blue-500 */
+    background-color: #eff6ff; /* blue-50 */
+    color: #1d4ed8; /* blue-700 */
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
 }
 
-.pointer-events-none {
-    pointer-events: none;
+.type-btn {
+    border: 2px solid #e2e8f0; /* slate-200 */
+    color: #64748b; /* slate-500 */
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.pointer-events-auto {
-    pointer-events: auto;
+input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+    border: 3px solid white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    border-radius: 1rem;
 }
