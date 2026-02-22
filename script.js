@@ -3,6 +3,7 @@ import * as THREE from 'three';
 // --- 상수 설정 (game_algo.md 참조) ---
 const GOAL_DISTANCE = 100.0;
 const TRACK_WIDTH = 60.0;
+const TRACK_BUFFER = 50.0; // 출발/도착선 밖의 여유 공간
 const DT = 0.016; // 60 FPS 고정
 const BASE_SPEED_MEAN = 10.0;
 const SPEED_VARIANCE = 3.0;
@@ -109,7 +110,6 @@ function updateSnailConfigs() {
         
         positionSnailInLane(snail, i, count);
 
-        // 이벤트 바인딩
         configDiv.querySelector('.snail-color').oninput = (e) => {
             snail.color = e.target.value;
             updateSnailVisuals(snail);
@@ -179,13 +179,13 @@ function initHUD() {
 
 function initThreeJS() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf1f5f9); // Slate-100 (밝은 배경)
-    scene.fog = new THREE.Fog(0xf1f5f9, 100, 500);
+    scene.background = new THREE.Color(0xf1f5f9);
+    scene.fog = new THREE.Fog(0xf1f5f9, 150, 600);
 
     const width = window.innerWidth;
     const height = window.innerHeight;
-    camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
-    camera.position.set(50, 80, 130);
+    camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 2000);
+    camera.position.set(50, 100, 180);
     camera.lookAt(50, 0, 0);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -195,22 +195,11 @@ function initThreeJS() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // 구름 느낌의 부드러운 배경 도트 (별 대신)
-    const cloudGeo = new THREE.BufferGeometry();
-    const cloudCoords = [];
-    for(let i=0; i<1000; i++) {
-        cloudCoords.push((Math.random()-0.5)*800, (Math.random())*400, (Math.random()-0.5)*800);
-    }
-    cloudGeo.setAttribute('position', new THREE.Float32BufferAttribute(cloudCoords, 3));
-    const cloudMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0.8 });
-    const clouds = new THREE.Points(cloudGeo, cloudMat);
-    scene.add(clouds);
-
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    sunLight.position.set(20, 100, 50);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    sunLight.position.set(50, 200, 100);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.set(2048, 2048);
     scene.add(sunLight);
@@ -219,36 +208,59 @@ function initThreeJS() {
     pivot.position.set(GOAL_DISTANCE / 2, 0, 0);
     scene.add(pivot);
 
-    // 시소 받침대 (Fulcrum)
-    const fulcrumGeo = new THREE.CylinderGeometry(2, 6, 12, 4);
-    const fulcrumMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.5, roughness: 0.2 });
+    // 시소 받침대 (더 견고하게 디자인)
+    const fulcrumGeo = new THREE.CylinderGeometry(3, 8, 15, 4);
+    const fulcrumMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6, roughness: 0.2 });
     fulcrum = new THREE.Mesh(fulcrumGeo, fulcrumMat);
-    fulcrum.position.set(GOAL_DISTANCE / 2, -7.5, 0);
-    fulcrum.receiveShadow = true;
+    fulcrum.position.set(GOAL_DISTANCE / 2, -9, 0);
     scene.add(fulcrum);
     
-    const jointGeo = new THREE.CylinderGeometry(1.2, 1.2, TRACK_WIDTH + 10, 16);
+    const jointGeo = new THREE.CylinderGeometry(1.5, 1.5, TRACK_WIDTH + 15, 32);
     jointGeo.rotateX(Math.PI / 2);
     const joint = new THREE.Mesh(jointGeo, fulcrumMat);
     joint.position.set(GOAL_DISTANCE/2, -1.5, 0);
     scene.add(joint);
 
-    // 트랙 (Track)
-    const trackGeo = new THREE.BoxGeometry(GOAL_DISTANCE + 40, 3, TRACK_WIDTH);
-    const trackMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.1 });
+    // 트랙 (Track) - 전후방으로 훨씬 길게 확장
+    const trackLength = GOAL_DISTANCE + (TRACK_BUFFER * 2);
+    const trackGeo = new THREE.BoxGeometry(trackLength, 3, TRACK_WIDTH);
+    const trackMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.05 });
     track = new THREE.Mesh(trackGeo, trackMat);
-    track.position.set(0, -1.5, 0);
+    track.position.set(0, -1.5, 0); // pivot 중심 기준
     track.receiveShadow = true;
     pivot.add(track);
 
-    // 도착선 (Goal)
+    // 출발선 (Start Line)
+    const startLine = new THREE.Mesh(
+        new THREE.PlaneGeometry(3, TRACK_WIDTH),
+        new THREE.MeshStandardMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.5 })
+    );
+    startLine.rotation.x = -Math.PI / 2;
+    startLine.position.set(-GOAL_DISTANCE / 2, 1.52, 0);
+    track.add(startLine);
+
+    // 도착선 (Goal Line)
     const goalLine = new THREE.Mesh(
-        new THREE.PlaneGeometry(4, TRACK_WIDTH),
-        new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.4 })
+        new THREE.PlaneGeometry(5, TRACK_WIDTH),
+        new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.6 })
     );
     goalLine.rotation.x = -Math.PI / 2;
     goalLine.position.set(GOAL_DISTANCE / 2, 1.52, 0);
     track.add(goalLine);
+
+    // 트랙 장식: 10m 마다 가로선
+    for(let i = -5; i <= 15; i++) {
+        const xPos = i * 10 - (GOAL_DISTANCE / 2);
+        if (Math.abs(i) <= 10 && i !== 0 && i !== 10) {
+            const line = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.2, TRACK_WIDTH),
+                new THREE.MeshBasicMaterial({ color: 0xf1f5f9 })
+            );
+            line.rotation.x = -Math.PI / 2;
+            line.position.set(xPos, 1.51, 0);
+            track.add(line);
+        }
+    }
 
     window.addEventListener('resize', onWindowResize);
 }
@@ -263,7 +275,7 @@ function createSnailMesh(color, type) {
         metalness: type === 'B' ? 0.9 : 0.1,
     });
     const shell = new THREE.Mesh(shellGeo, shellMat);
-    shell.position.set(-1, 3.5, 0);
+    shell.position.set(-1.5, 3.5, 0);
     shell.castShadow = true;
     snailGroup.add(shell);
 
@@ -278,21 +290,21 @@ function createSnailMesh(color, type) {
     });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.rotation.z = Math.PI / 2;
-    body.position.set(0.5, 1.2, 0);
+    body.position.set(0, 1.2, 0);
     body.castShadow = true;
     snailGroup.add(body);
 
     const eyes = new THREE.Group();
     [0.5, -0.5].forEach(z => {
         const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.5), new THREE.MeshBasicMaterial({ color: 0xf8fafc }));
-        stalk.position.set(3, 2, z);
+        stalk.position.set(2.5, 2, z);
         stalk.rotation.z = -0.4;
         eyes.add(stalk);
         const ball = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-        ball.position.set(3.5, 3, z);
+        ball.position.set(3, 3, z);
         eyes.add(ball);
-        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x334155 }));
-        pupil.position.set(3.7, 3, z);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0x334155 }));
+        pupil.position.set(3.2, 3, z);
         eyes.add(pupil);
     });
     snailGroup.add(eyes);
@@ -343,13 +355,13 @@ function updateSeesawLogic() {
     
     const intensity = Math.abs(seesawValue);
     if (intensity < 0.1) {
-        seesawValDisplay.style.color = '#94a3b8'; // slate-400
+        seesawValDisplay.style.color = '#94a3b8';
         seesawArrow.innerText = '↔️';
     } else if (seesawValue > 0) {
-        seesawValDisplay.style.color = '#10b981'; // emerald-500
+        seesawValDisplay.style.color = '#10b981';
         seesawArrow.innerText = '➡️';
     } else {
-        seesawValDisplay.style.color = '#ef4444'; // red-500
+        seesawValDisplay.style.color = '#ef4444';
         seesawArrow.innerText = '⬅️';
     }
 }
@@ -360,20 +372,28 @@ function updateSnailPhysics() {
         const finalVelocity = baseSpeed + (seesawValue * snail.sensitivity);
         snail.speed = finalVelocity;
         snail.position += finalVelocity * DT;
+        
+        // 출발선 뒤로 나가는 것 방지
         if (snail.position < 0) snail.position = 0;
 
+        // 메시 위치 업데이트 (출발선 기준)
         snail.mesh.position.x = snail.position - (GOAL_DISTANCE / 2);
+        
+        // 시각적 효과
         snail.bodyMesh.scale.set(1, Math.max(0.4, 1 + (finalVelocity / 45)), 1);
         snail.mesh.position.y = Math.abs(Math.sin(snail.position * 0.4)) * 0.4;
         snail.shellMesh.rotation.z = -finalVelocity * 0.015;
 
         createSlimeTrail(snail);
 
-        const progress = Math.min(100, (snail.position / GOAL_DISTANCE) * 100);
+        // 진행도 및 속도 표시 (머리 기준)
+        const progress = Math.min(100, ((snail.position + 3.5) / GOAL_DISTANCE) * 100);
         snail.hudElement.querySelector('.progress-bar').style.width = `${progress}%`;
         snail.hudElement.querySelector('.speed-val').innerText = `${finalVelocity.toFixed(1)} m/s`;
 
-        if (snail.position >= GOAL_DISTANCE && !winners.includes(snail)) {
+        // 도착 판단: 달팽이의 앞부분(눈/더듬이 위치)이 골인 지점을 넘었을 때
+        // snail.position은 몸통 중심이므로, 약 3.5m 앞이 머리 부분임
+        if (snail.position + 3.5 >= GOAL_DISTANCE && !winners.includes(snail)) {
             winners.push(snail);
             if (winners.length === 1) setTimeout(endGame, 1000);
         }
@@ -384,9 +404,10 @@ function createSlimeTrail(snail) {
     if (Math.random() < 0.2) {
         const trail = new THREE.Mesh(
             new THREE.PlaneGeometry(2.5, 3),
-            new THREE.MeshBasicMaterial({ color: snail.color, transparent: true, opacity: 0.2, side: THREE.DoubleSide })
+            new THREE.MeshBasicMaterial({ color: snail.color, transparent: true, opacity: 0.15, side: THREE.DoubleSide })
         );
         trail.rotation.x = -Math.PI / 2;
+        // 꼬리 부분에 자국 남기기
         trail.position.set(snail.position - (GOAL_DISTANCE / 2) - 3, 1.52, snail.mesh.position.z);
         track.add(trail);
         snail.trail.push(trail);
