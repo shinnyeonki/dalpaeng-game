@@ -1,0 +1,55 @@
+/* style.css */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;800&display=swap');
+
+:root {
+    --emerald-950: #064e3b;
+    --emerald-900: #064e3b;
+    --emerald-800: #065f46;
+    --emerald-500: #10b981;
+}
+
+body {
+    font-family: 'JetBrains+Mono', monospace;
+    background-color: #020617;
+    background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+    background-size: 100% 4px, 3px 100%;
+}
+
+/* Snail State Effects */
+.snail-boost {
+    filter: drop-shadow(0 0 10px currentColor);
+    animation: jitter 0.05s infinite;
+}
+
+.snail-struggle {
+    opacity: 0.5;
+    animation: shake 0.4s infinite;
+}
+
+@keyframes jitter {
+    0% { transform: translate(0,0) rotate(1deg); }
+    33% { transform: translate(1px, -1px) rotate(-1deg); }
+    66% { transform: translate(-1px, 1px) rotate(1deg); }
+    100% { transform: translate(0,0) rotate(0deg); }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+}
+
+.track-line {
+    background-image: repeating-linear-gradient(90deg, transparent, transparent 9.5%, rgba(16,185,129,0.05) 10%);
+    background-size: 100% 100%;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+select {
+    appearance: none;
+}

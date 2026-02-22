@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이중 확률 기반 달팽이 경주</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+          }
+        }
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-900 text-white min-h-screen overflow-hidden">
+    <!-- UI Overlay -->
+    <div id="ui-layer" class="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
+        <!-- Setup Screen -->
+        <div id="setup-screen" class="bg-gray-800 p-8 rounded-xl shadow-2xl pointer-events-auto max-w-2xl w-full mx-4">
+            <h1 class="text-3xl font-bold mb-6 text-center text-blue-400">🐌 달팽이 경주 설정</h1>
+            
+            <div class="mb-6">
+                <label class="block mb-2 font-semibold">참가 달팽이 수 (2~4)</label>
+                <input type="number" id="snail-count" min="2" max="4" value="2" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white">
+            </div>
+
+            <div id="snail-configs" class="space-y-4 mb-6 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                <!-- Snail config items will be injected here -->
+            </div>
+
+            <button id="start-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-colors">
+                경기 시작!
+            </button>
+        </div>
+
+        <!-- Game HUD -->
+        <div id="game-hud" class="hidden absolute top-0 left-0 w-full p-4 pointer-events-none">
+            <div class="flex justify-between items-start">
+                <div id="snail-info" class="space-y-2 bg-black/50 p-4 rounded-lg backdrop-blur-sm">
+                    <!-- Snail status will be shown here -->
+                </div>
+                <div id="seesaw-indicator" class="bg-black/50 p-4 rounded-lg backdrop-blur-sm text-center">
+                    <div class="text-xs uppercase tracking-widest text-gray-400 mb-1">경기장 기울기</div>
+                    <div id="seesaw-value" class="text-2xl font-mono font-bold">0.00</div>
+                    <div id="seesaw-arrow" class="text-xl transition-transform duration-300">↔️</div>
+                </div>
+            </div>
+            
+            <!-- Result Overlay -->
+            <div id="result-overlay" class="hidden fixed inset-0 bg-black/80 flex flex-col items-center justify-center pointer-events-auto z-50">
+                <h2 class="text-5xl font-bold mb-4 text-yellow-400">경기 종료!</h2>
+                <div id="winner-text" class="text-3xl mb-8"></div>
+                <button onclick="location.reload()" class="bg-white text-black px-8 py-3 rounded-full font-bold hover:bg-gray-200 transition-colors">
+                    다시 하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js Canvas Container -->
+    <div id="canvas-container" class="absolute inset-0"></div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
