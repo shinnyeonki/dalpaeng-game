@@ -373,6 +373,13 @@ function updateGameLogic() {
     if (gameState === 'racing') {
         updateSeesawLogic();
         snails.forEach(snail => updateSnailPhysics(snail));
+        
+        // 타이머 업데이트
+        const time = clock.elapsedTime;
+        const mins = Math.floor(time / 60);
+        const secs = Math.floor(time % 60);
+        const cents = Math.floor((time % 1) * 100);
+        gameTimer.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${cents.toString().padStart(2, '0')}`;
     } else if (gameState === 'finished') {
         snails.forEach(snail => { if (snail.isDead) updateDeathAnimation(snail); });
     }
