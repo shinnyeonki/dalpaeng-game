@@ -7,11 +7,20 @@ const TRACK_WIDTH = 70.0;
 const TRACK_BUFFER = 25.0;   
 const TRACK_HEIGHT = 5.0;   
 
-const BASE_SPEED_MEAN = 6.0;
-const SPEED_VARIANCE = 4.0;
+// const BASE_SPEED_MEAN = 6.0;
+const BASE_SPEED_MEAN = 20.0;
+// const SPEED_VARIANCE = 4.0;
+const SPEED_VARIANCE = 15.0;
 
 const SENSITIVITY_A = 4.0;
 const SENSITIVITY_B = 1.5;
+
+// --- [추가] 천사 이벤트 상수 ---
+const TRIGGER_DISTANCE_RATIO = 0.3; // 선두가 30% 지점 통과 시 발동 시도
+const BOTTOM_RANK_RATIO = 0.2;      // 하위 20% 그룹 선정
+const SELECTION_RATIO = 1;        // 그 그룹 내에서 30% 당첨
+const BOOST_MULTIPLIER = 2.5;       // 속도 2.5배
+const BOOST_DURATION = 4.0;         // 4초간 지속
 
 const DT = 0.016;
 const CONDITION_INTERVAL = 1.5;
@@ -26,6 +35,14 @@ let seesawTarget = 0.0;
 let winners = [];
 let clock = new THREE.Clock();
 let accumulator = 0;
+
+// --- [추가] 천사 이벤트 상태 ---
+let angelState = {
+    triggered: false,   // 이번 판에 이미 발동했는지 여부
+    active: false,      // 현재 화면에 천사가 있는지
+    animTimer: 0,       // 애니메이션 타이머
+    targets: []         // 부스터 받을 달팽이들
+};
 
 // --- Three.js 구성 요소 ---
 let scene, camera, renderer, pivot, track, fulcrum, controls;
@@ -342,6 +359,124 @@ function positionSnailInLane(snail, index, total) {
     snail.mesh.position.set(-GOAL_DISTANCE / 2, TRACK_HEIGHT / 2, laneZ);
 }
 
+function createAngelMesh() {
+    const group = new THREE.Group();
+
+    // 1. 몸통 (빛나는 원뿔)
+    const bodyMat = new THREE.MeshStandardMaterial({ 
+        color: 0xfffae0, emissive: 0xffd700, emissiveIntensity: 0.6,
+        transparent: true, opacity: 0.9, flatShading: true
+    });
+    const body = new THREE.Mesh(new THREE.ConeGeometry(4, 12, 8), bodyMat);
+    body.position.y = 0;
+    group.add(body);
+
+    // 2. 머리
+    const head = new THREE.Mesh(new THREE.SphereGeometry(2.5, 16, 16), bodyMat);
+    head.position.y = 7;
+    group.add(head);
+
+    // 3. 날개
+    const wingGeo = new THREE.CircleGeometry(6, 4);
+    const wingMat = new THREE.MeshBasicMaterial({ 
+        color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.7 
+    });
+    const w1 = new THREE.Mesh(wingGeo, wingMat);
+    w1.position.set(-4, 4, -2); w1.rotation.y = -0.4;
+    group.add(w1);
+    const w2 = new THREE.Mesh(wingGeo, wingMat);
+    w2.position.set(4, 4, -2); w2.rotation.y = 0.4;
+    group.add(w2);
+
+    // 4. 헤일로 (고리)
+    const halo = new THREE.Mesh(
+        new THREE.TorusGeometry(1.8, 0.3, 8, 24), 
+        new THREE.MeshBasicMaterial({ color: 0xffff00 })
+    );
+    halo.rotation.x = Math.PI / 2;
+    halo.position.set(0, 11, 0);
+    group.add(halo);
+
+    // 5. 스포트라이트 (집중 조명: 각도는 좁게, 트랙은 선명하게)
+    const light = new THREE.SpotLight(0xffdd00, 150, 150, 0.2, 0.4, 1);
+    light.position.set(0, 5, 0);
+    light.target.position.set(0, -50, 0);
+    group.add(light);
+    group.add(light.target);
+
+    return group;
+}
+
+function checkAngelEvent() {
+    if (angelState.triggered || snails.length === 0) return;
+
+    const maxPos = Math.max(...snails.map(s => s.position));
+    if (maxPos / GOAL_DISTANCE >= TRIGGER_DISTANCE_RATIO) {
+        angelState.triggered = true;
+        
+        // 발동 확률 (선택사항이나 "확률적으로 1회" 지침 준수)
+        if (Math.random() > 0.7) return; 
+
+        // 하위 20% 그룹 선정 (오름차순 정렬)
+        const sorted = [...snails].sort((a, b) => a.position - b.position);
+        const bottomCount = Math.max(1, Math.ceil(snails.length * BOTTOM_RANK_RATIO));
+        const candidates = sorted.slice(0, bottomCount);
+        
+        // 그룹 내에서 30% 선정
+        angelState.targets = candidates.filter(() => Math.random() < SELECTION_RATIO);
+        
+        if (angelState.targets.length > 0) {
+            angelState.active = true;
+            angelState.targets.forEach(snail => {
+                const angel = createAngelMesh();
+                snail.angelMesh = angel;
+                scene.add(angel);
+                // 초기 위치: 매우 높은 곳
+                angel.position.set(0, 300, 0); 
+            });
+            angelState.animTimer = 0;
+        }
+    }
+}
+
+const _worldPos = new THREE.Vector3();
+function updateAngelAnimation() {
+    if (!angelState.active) return;
+    
+    angelState.animTimer += DT;
+    const t = angelState.animTimer;
+    
+    let targetYOffset;
+    if (t < 1.0) { // 하강 (1초)
+        targetYOffset = THREE.MathUtils.lerp(300, 45, t);
+    } else if (t < BOOST_DURATION + 1.0) { // 체공 및 버프 유지 (4초)
+        targetYOffset = 45 + Math.sin(t * 3) * 2;
+    } else { // 상승 및 소멸 (1초)
+        const ascendT = (t - (BOOST_DURATION + 1.0));
+        targetYOffset = THREE.MathUtils.lerp(45, 300, ascendT);
+        if (ascendT > 1.0) {
+            angelState.targets.forEach(snail => {
+                if (snail.angelMesh) {
+                    scene.remove(snail.angelMesh);
+                    delete snail.angelMesh;
+                }
+            });
+            angelState.active = false;
+            angelState.targets = [];
+            return;
+        }
+    }
+
+    // 각 천사의 위치를 대응하는 달팽이의 머리 위로 실시간 업데이트
+    angelState.targets.forEach(snail => {
+        if (snail.angelMesh) {
+            snail.mesh.getWorldPosition(_worldPos);
+            snail.angelMesh.position.copy(_worldPos);
+            snail.angelMesh.position.y += targetYOffset;
+        }
+    });
+}
+
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -372,6 +507,8 @@ function animate() {
 function updateGameLogic() {
     if (gameState === 'racing') {
         updateSeesawLogic();
+        checkAngelEvent();
+        updateAngelAnimation();
         snails.forEach(snail => updateSnailPhysics(snail));
         
         // 타이머 업데이트
@@ -401,8 +538,15 @@ function updateSnailPhysics(snail) {
     snail.currentBaseSpeed += (snail.targetBaseSpeed - snail.currentBaseSpeed) * CONDITION_SMOOTHING;
 
     const finalVelocity = snail.currentBaseSpeed + (seesawValue * snail.sensitivity);
-    snail.speed = finalVelocity;
-    snail.position += finalVelocity * DT;
+    
+    // --- [추가] 부스터 효과 적용 ---
+    let effectiveVelocity = finalVelocity;
+    if (angelState.active && angelState.targets.includes(snail)) {
+        effectiveVelocity *= BOOST_MULTIPLIER;
+    }
+
+    snail.speed = effectiveVelocity;
+    snail.position += effectiveVelocity * DT;
     if (snail.position < 0) snail.position = 0;
 
     // --- 시각적 업데이트 (앞뒤 수축/팽창 방식) ---
@@ -417,7 +561,7 @@ function updateSnailPhysics(snail) {
     
     // 3. 앞뒤 수축/팽창 (Squash and Stretch)
     const stretchIntensity = snail.type === 'A' ? 0.5 : 0.25; 
-    const baseStretch = 1 + (finalVelocity / (snail.type === 'A' ? 40 : 80));
+    const baseStretch = 1 + (effectiveVelocity / (snail.type === 'A' ? 40 : 80));
     const rhythmicStretch = crawlCycle * stretchIntensity;
     
     const finalStretch = Math.max(0.5, baseStretch + rhythmicStretch);
@@ -425,7 +569,7 @@ function updateSnailPhysics(snail) {
     
     // 4. 껍질과 눈의 미세 반응
     snail.shell.position.x = -1.5 + (crawlCycle * 0.7); 
-    snail.shell.rotation.z = -finalVelocity * 0.01 - (crawlCycle * 0.1);
+    snail.shell.rotation.z = -effectiveVelocity * 0.01 - (crawlCycle * 0.1);
 
     snail.pupils.forEach(p => {
         const time = performance.now() * 0.01;
@@ -437,7 +581,7 @@ function updateSnailPhysics(snail) {
     // 머리 위치 보정 (약 5m 앞)
     const progress = Math.min(100, ((snail.position + 5) / GOAL_DISTANCE) * 100);
     snail.hudElement.querySelector('.progress-bar').style.width = `${progress}%`;
-    snail.hudElement.querySelector('.speed-val').innerText = `${finalVelocity.toFixed(1)} m/s`;
+    snail.hudElement.querySelector('.speed-val').innerText = `${effectiveVelocity.toFixed(1)} m/s`;
 
     if (snail.position + 5 >= GOAL_DISTANCE && !winners.includes(snail)) {
         winners.push(snail);
