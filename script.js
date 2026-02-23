@@ -42,6 +42,7 @@ const seesawArrow = document.getElementById('seesaw-arrow');
 const resultOverlay = document.getElementById('result-overlay');
 const winnerText = document.getElementById('winner-text');
 const snailInfo = document.getElementById('snail-info');
+const gameTimer = document.getElementById('game-timer');
 
 function init() {
     initThreeJS();
