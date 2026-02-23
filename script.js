@@ -6,15 +6,17 @@ const GOAL_DISTANCE = 200.0;
 const TRACK_WIDTH = 70.0;   
 const TRACK_BUFFER = 25.0;   
 const TRACK_HEIGHT = 5.0;   
-const DT = 0.016;
-const BASE_SPEED_MEAN = 5.0;
-const SPEED_VARIANCE = 5.0;
 
-const CONDITION_INTERVAL = 1.5;
-const CONDITION_SMOOTHING = 0.03;
+const BASE_SPEED_MEAN = 6.0;
+const SPEED_VARIANCE = 4.0;
 
 const SENSITIVITY_A = 4.0;
 const SENSITIVITY_B = 1.5;
+
+const DT = 0.016;
+const CONDITION_INTERVAL = 1.5;
+const CONDITION_SMOOTHING = 0.03;
+
 
 // --- 게임 상태 ---
 let gameState = 'setup';
