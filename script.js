@@ -1,119 +1,133 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as World from './world.js';
+import * as Simulation from './simulation.js';
 
-// --- 상수 설정 (보통 스케일로 정상화) ---
-const GOAL_DISTANCE = 200.0; 
-const TRACK_WIDTH = 120.0;   
-const TRACK_BUFFER = 25.0;   
-const TRACK_HEIGHT = 5.0;   
-
-const BASE_SPEED_MEAN = 6.0;
-// const BASE_SPEED_MEAN = 20.0;
-const SPEED_VARIANCE = 4.0;
-// const SPEED_VARIANCE = 15.0;
-
-const SLOPE_SENSITIVITY_A = 4.0;
-const SLOPE_SENSITIVITY_B = 1.5;
-
-// --- [추가] 천사 이벤트 상수 ---
-const TRIGGER_DISTANCE_RATIO = 0.3; // 선두가 30% 지점 통과 시 발동 시도
-const BOTTOM_RANK_RATIO = 0.4;      // 하위 20% 그룹 선정
-const SELECTION_RATIO = 1;        // 그 그룹 내에서 30% 당첨
-const BOOST_MULTIPLIER = 2.5;       // 속도 2.5배
-const BOOST_DURATION = 4.0;         // 4초간 지속
-
-const DT = 0.016;
-const CONDITION_INTERVAL = 1.5;
-const CONDITION_SMOOTHING = 0.03;
-
-
-// --- 게임 상태 ---
-let gameState = 'setup';
-let snails = [];
-let seesawValue = 0.0;
-let seesawTarget = 0.0;
-let winners = [];
-let clock = new THREE.Clock();
-let accumulator = 0;
-
-// --- [추가] 천사 이벤트 상태 ---
-let angelState = {
-    triggered: false,   // 이번 판에 이미 발동했는지 여부
-    active: false,      // 현재 화면에 천사가 있는지
-    animTimer: 0,       // 애니메이션 타이머
-    targets: []         // 부스터 받을 달팽이들
+// --- ⚙️ 게임 상수 설정 (밸런스 및 물리 환경) ---
+const CONFIG = {
+    GOAL_DISTANCE: 200.0,      // 목표 지점 거리 (m)
+    TRACK_WIDTH: 120.0,        // 트랙 전체 너비
+    TRACK_BUFFER: 25.0,        // 출발선 이전/도착선 이후 여유 공간
+    TRACK_HEIGHT: 5.0,         // 트랙 판의 두께
+    
+    BASE_SPEED_MEAN: 7.0,      // 모든 달팽이의 평균 기본 이동 속도
+    SPEED_VARIANCE: 5.0,       // 컨디션 변화에 따른 속도 변동폭 (기본 속도 ±5.0)
+    
+    SLOPE_SENSITIVITY_A: 4.0,  // [미끌미끌] 타입: 경사에 매우 민감 (내리막에서 매우 빠름, 오르막에서 역주행 위험)
+    SLOPE_SENSITIVITY_B: 1.5,  // [빤딱빤딱] 타입: 경사에 둔감 (기울기에 상관없이 안정적으로 전진)
+    
+    TRIGGER_DISTANCE_RATIO: 0.5, // 천사 이벤트가 발생하는 시점 (선두가 50% 지점 통과 시)
+    EVENT_TRIGGER_CHANCE: 1.0,   // 천사 이벤트가 발생할 확률 (1.0 = 100%)
+    BOTTOM_RANK_RATIO: 0.4,      // 천사의 가호를 받을 후보군 범위 (하위 40% 달팽이들)
+    SELECTION_RATIO: 0.5,        // 후보군 중 실제 당첨될 확률 (50%)
+    BOOST_MULTIPLIER: 2.0,       // 천사 버프 시 기본 속도 증가 배율
+    BOOST_DURATION: 3.0,         // 버프 지속 시간 (초)
+    
+    DT: 0.016,                 // 물리 연산 프레임 간격 (60FPS 기준, 약 0.016초)
+    CONDITION_INTERVAL: 1.5,   // 달팽이의 컨디션(목표 속도)이 바뀌는 평균 주기 (초)
+    CONDITION_SMOOTHING: 0.03  // 속도가 급격하게 변하지 않도록 하는 보간 계수 (낮을수록 부드러움)
 };
 
-// --- Three.js 구성 요소 ---
-let scene, camera, renderer, pivot, track, fulcrum, controls;
+// --- 🎮 게임 전역 상태 관리 ---
+let gameState = 'setup';       // 게임 상태: 'setup'(대기), 'racing'(경주 중), 'finished'(종료)
+let snails = [];               // 경주 중인 모든 달팽이 객체 배열
+let seesawValue = 0.0;         // 현재 시소 기울기 수치 (-1.0: 왼쪽 높음 ~ 1.0: 오른쪽 높음)
+let seesawTarget = 0.0;        // 시소가 향하려고 하는 목표 기울기 (랜덤하게 변함)
+let winners = [];              // 결승선을 통과한 순서대로 달팽이 객체 저장
+let clock = new THREE.Clock(); // 게임 내 절대 시간 측정을 위한 시계
+let accumulator = 0;           // 물리 엔진의 프레임을 고르게 유지하기 위한 시간 누적값
+let angelState = {             // 천사 이벤트의 현재 진행 상태
+    triggered: false,          // 이번 판에 이미 이벤트가 발생했는지 여부
+    active: false,             // 현재 화면에 천사가 나타나 활동 중인지 여부
+    animTimer: 0,              // 천사 애니메이션 진행 시간
+    targets: []                // 버프를 받고 있는 달팽이 목록
+};
+let currentSessionConfigs = []; // 사용자가 설정한 달팽이 이름, 색상, 타입 정보 (로컬 스토리지 동기화용)
 
-// --- UI 요소 ---
-const setupScreen = document.getElementById('setup-screen');
-const snailConfigsContainer = document.getElementById('snail-configs');
-const snailCountInput = document.getElementById('snail-count');
-const snailCountDisplay = document.getElementById('snail-count-display');
-const startBtn = document.getElementById('start-btn');
-const gameHud = document.getElementById('game-hud');
-const seesawValDisplay = document.getElementById('seesaw-value');
-const seesawArrow = document.getElementById('seesaw-arrow');
-const resultOverlay = document.getElementById('result-overlay');
-const winnerText = document.getElementById('winner-text');
-const snailInfo = document.getElementById('snail-info');
-const gameTimer = document.getElementById('game-timer');
-const loadSettingsContainer = document.getElementById('load-settings-container');
-const loadSettingsBtn = document.getElementById('load-settings-btn');
+// --- 🖥️ UI 요소 참조 (DOM Elements) ---
+const setupScreen = document.getElementById('setup-screen');           // 초기 설정 화면 레이어
+const snailConfigsContainer = document.getElementById('snail-configs'); // 개별 달팽이 설정 UI가 생성될 컨테이너
+const snailCountInput = document.getElementById('snail-count');         // 달팽이 마리수 조절 슬라이더
+const snailCountDisplay = document.getElementById('snail-count-display'); // 현재 선택된 마리수 텍스트 표시
+const startBtn = document.getElementById('start-btn');                   // '경주 시작' 버튼
+const gameHud = document.getElementById('game-hud');                     // 경주 중 진행 상황을 보여주는 HUD 레이어
+const seesawValDisplay = document.getElementById('seesaw-value');       // 화면 우측 상단 지형 기울기 수치 표시창
+const seesawArrow = document.getElementById('seesaw-arrow');             // 시소 기울기 방향을 보여주는 아이콘/화살표
+const resultOverlay = document.getElementById('result-overlay');         // 경기 종료 후 우승자 발표 레이어
+const winnerText = document.getElementById('winner-text');               // 우승자 이름이 출력되는 공간
+const snailInfo = document.getElementById('snail-info');                 // 왼쪽 상단 개별 달팽이 상태(진행도, 속도) 컨테이너
+const gameTimer = document.getElementById('game-timer');                 // 경주 경과 시간 표시기
+const loadSettingsContainer = document.getElementById('load-settings-container'); // '이전 설정 불러오기' 영역
+const loadSettingsBtn = document.getElementById('load-settings-btn');     // 실제 불러오기 버튼
 
 function init() {
-    initThreeJS();
+    World.initWorld('canvas-container', CONFIG.GOAL_DISTANCE, CONFIG.TRACK_WIDTH, CONFIG.TRACK_HEIGHT, CONFIG.TRACK_BUFFER);
     
-    // 이전 설정이 있는지 확인
+    // 이전에 저장된 설정이 있는지 확인만 함
     const hasSaved = localStorage.getItem('snail-configs');
     if (hasSaved) {
         loadSettingsContainer.classList.remove('hidden');
     }
 
-    loadSettingsBtn.addEventListener('click', () => {
+    // 불러오기 버튼 클릭 시 저장된 값을 현재 세션에 적용
+    loadSettingsBtn.onclick = () => {
         const savedCount = localStorage.getItem('snail-count');
-        if (savedCount) {
+        const savedConfigs = localStorage.getItem('snail-configs');
+        
+        if (savedCount && savedConfigs) {
             snailCountInput.value = savedCount;
             snailCountDisplay.innerText = `${savedCount}마리`;
+            updateSnailConfigs(true); // true: localStorage에서 읽어옴
         }
-        updateSnailConfigs(true);
         loadSettingsContainer.classList.add('hidden');
-    });
+    };
 
-    snailCountInput.addEventListener('input', (e) => {
+    snailCountInput.oninput = (e) => {
         snailCountDisplay.innerText = `${e.target.value}마리`;
-        localStorage.setItem('snail-count', e.target.value);
-        updateSnailConfigs();
-    });
-    startBtn.addEventListener('click', startGame);
-    updateSnailConfigs(false); // 기본은 새로 시작
+        updateSnailConfigs(false); // 슬라이더 조절 시 실시간 UI 갱신 (저장은 안 함)
+    };
+
+    startBtn.onclick = startGame;
+    
+    // 초기 실행: 저장된 데이터가 아니라 기본값으로 화면을 구성 (저장은 하지 않음)
+    updateSnailConfigs(false);
     animate();
 }
 
-let currentSessionConfigs = [];
-
 function updateSnailConfigs(loadFromStorage = false) {
     if (loadFromStorage) {
-        try {
-            currentSessionConfigs = JSON.parse(localStorage.getItem('snail-configs')) || [];
-        } catch (e) {
-            console.error('Failed to load saved configs', e);
+        try { 
+            const savedConfigs = JSON.parse(localStorage.getItem('snail-configs'));
+            if (savedConfigs) {
+                currentSessionConfigs = savedConfigs;
+            }
+        } catch (e) { 
+            console.error('설정 로드 실패:', e); 
         }
     }
 
     const count = parseInt(snailCountInput.value);
+    
+    // 현재 UI에 표시된 달팽이 마리수와 설정 데이터의 개수를 맞춤
+    if (currentSessionConfigs.length !== count) {
+        if (currentSessionConfigs.length > count) {
+            currentSessionConfigs = currentSessionConfigs.slice(0, count);
+        } else {
+            for (let i = currentSessionConfigs.length; i < count; i++) {
+                currentSessionConfigs[i] = {
+                    name: `달팽이 ${i + 1}`,
+                    color: getRandomColor(i),
+                    type: 'A'
+                };
+            }
+        }
+    }
+
     snailConfigsContainer.innerHTML = '';
-    snails.forEach(s => { if(s.mesh) track.remove(s.mesh); });
+    snails.forEach(s => { if(s.mesh) World.track.remove(s.mesh); });
     snails = [];
 
     for (let i = 0; i < count; i++) {
-        const config = currentSessionConfigs[i] || {};
-        const defaultColor = config.color || getRandomColor(i);
-        const defaultName = config.name || `달팽이 ${i+1}`;
-        const defaultType = config.type || 'A';
-
+        const config = currentSessionConfigs[i];
         const configDiv = document.createElement('div');
         configDiv.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md';
         configDiv.innerHTML = `
@@ -121,85 +135,89 @@ function updateSnailConfigs(loadFromStorage = false) {
                 <div class="space-y-3">
                     <div class="flex gap-2 items-center">
                         <span class="text-xs font-black text-slate-300 uppercase">#${i+1}</span>
-                        <input type="text" value="${defaultName}" placeholder="달팽이 ${i+1}" class="snail-name bg-transparent border-b-2 border-slate-100 focus:border-blue-400 outline-none w-full text-sm font-bold text-slate-800">
+                        <input type="text" value="${config.name}" placeholder="달팽이 ${i+1}" class="snail-name bg-transparent border-b-2 border-slate-100 focus:border-blue-400 outline-none w-full text-sm font-bold text-slate-800">
                     </div>
                     <div class="flex gap-4">
                         <label class="flex items-center gap-2 cursor-pointer group">
-                            <input type="radio" name="type-${i}" value="A" ${defaultType === 'A' ? 'checked' : ''} class="snail-type hidden">
+                            <input type="radio" name="type-${i}" value="A" ${config.type === 'A' ? 'checked' : ''} class="snail-type hidden">
                             <span class="type-btn px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider">미끌미끌 달팽이</span>
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer group">
-                            <input type="radio" name="type-${i}" value="B" ${defaultType === 'B' ? 'checked' : ''} class="snail-type hidden">
+                            <input type="radio" name="type-${i}" value="B" ${config.type === 'B' ? 'checked' : ''} class="snail-type hidden">
                             <span class="type-btn px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider">빤딱빤딱 달팽이</span>
                         </label>
                     </div>
                 </div>
                 <div class="flex flex-col items-center justify-center">
-                    <input type="color" value="${defaultColor}" class="snail-color w-10 h-10 bg-transparent cursor-pointer overflow-hidden">
+                    <input type="color" value="${config.color}" class="snail-color w-10 h-10 bg-transparent cursor-pointer overflow-hidden">
                 </div>
             </div>
         `;
         snailConfigsContainer.appendChild(configDiv);
 
-        addSnail(i, defaultColor, defaultType, count, defaultName);
+        addSnail(i, config.color, config.type, count, config.name);
 
+        // 입력 시 메모리 내 currentSessionConfigs 만 업데이트
         configDiv.querySelector('.snail-name').oninput = (e) => {
             const val = e.target.value || `달팽이 ${i+1}`;
             snails[i].name = val;
-            updateSessionConfig(i, 'name', val);
+            currentSessionConfigs[i].name = val;
         };
 
         configDiv.querySelector('.snail-color').oninput = (e) => {
-            const snail = snails[i];
-            snail.color = e.target.value;
-            refreshSnailMesh(snail, i, count);
-            updateSessionConfig(i, 'color', e.target.value);
+            const val = e.target.value;
+            snails[i].color = val;
+            currentSessionConfigs[i].color = val;
+            refreshSnailMesh(snails[i], i, count);
         };
+
         configDiv.querySelectorAll('input[type="radio"]').forEach(radio => {
             radio.onchange = (e) => {
                 if (e.target.checked) {
+                    const val = e.target.value;
                     const snail = snails[i];
-                    snail.type = e.target.value;
-                    snail.sensitivity = snail.type === 'A' ? SLOPE_SENSITIVITY_A : SLOPE_SENSITIVITY_B;
+                    snail.type = val;
+                    snail.sensitivity = val === 'A' ? CONFIG.SLOPE_SENSITIVITY_A : CONFIG.SLOPE_SENSITIVITY_B;
+                    currentSessionConfigs[i].type = val;
                     refreshSnailMesh(snail, i, count);
-                    updateSessionConfig(i, 'type', e.target.value);
                 }
             };
         });
     }
-    saveCurrentConfigs();
 }
 
-function updateSessionConfig(index, key, value) {
-    if (!currentSessionConfigs[index]) {
-        currentSessionConfigs[index] = {
-            name: `달팽이 ${index+1}`,
-            color: getRandomColor(index),
-            type: 'A'
-        };
-    }
-    currentSessionConfigs[index][key] = value;
-    saveCurrentConfigs();
-}
-
-function saveCurrentConfigs() {
-    // 현재 세션의 설정들을 localStorage에 동기화
+function saveAllSettings() {
+    localStorage.setItem('snail-count', snailCountInput.value);
     localStorage.setItem('snail-configs', JSON.stringify(currentSessionConfigs));
 }
 
+function startGame() {
+    // 경주 시작 시점에 모든 설정을 확정 저장
+    saveAllSettings();
+    
+    setupScreen.classList.add('opacity-0');
+    setTimeout(() => {
+        setupScreen.classList.add('hidden');
+        gameHud.classList.remove('hidden');
+        initHUD();
+        gameState = 'racing';
+        clock.start();
+    }, 500);
+}
+
 function addSnail(index, color, type, total, name) {
-    const visual = createSnailMesh(color, type);
+    const visual = Simulation.createSnailMesh(color, type);
     const snail = {
         id: index,
         name: name || `달팽이 ${index+1}`,
         color: color,
         type: type,
-        sensitivity: type === 'A' ? SLOPE_SENSITIVITY_A : SLOPE_SENSITIVITY_B,
+        sensitivity: type === 'A' ? CONFIG.SLOPE_SENSITIVITY_A : CONFIG.SLOPE_SENSITIVITY_B,
         position: 0,
         speed: 0,
-        currentBaseSpeed: BASE_SPEED_MEAN,
-        targetBaseSpeed: BASE_SPEED_MEAN,
-        conditionTimer: Math.random() * CONDITION_INTERVAL,
+        currentBaseSpeed: CONFIG.BASE_SPEED_MEAN,
+        targetBaseSpeed: CONFIG.BASE_SPEED_MEAN,
+        conditionTimer: Math.random() * CONFIG.CONDITION_INTERVAL,
         isDead: false,
         deathAnim: 0,
         mesh: visual.group,
@@ -211,37 +229,28 @@ function addSnail(index, color, type, total, name) {
     };
     snails.push(snail);
     positionSnailInLane(snail, index, total);
+    World.track.add(snail.mesh);
 }
 
 function refreshSnailMesh(snail, index, total) {
-    if (snail.mesh) track.remove(snail.mesh);
-    const visual = createSnailMesh(snail.color, snail.type);
+    if (snail.mesh) World.track.remove(snail.mesh);
+    const visual = Simulation.createSnailMesh(snail.color, snail.type);
     snail.mesh = visual.group;
     snail.shell = visual.shell;
     snail.body = visual.body;
     snail.pupils = visual.pupils;
     positionSnailInLane(snail, index, total);
+    World.track.add(snail.mesh);
+}
+
+function positionSnailInLane(snail, index, total) {
+    const laneZ = (index - (total - 1) / 2) * (CONFIG.TRACK_WIDTH / (total + 0.5));
+    snail.mesh.position.set(-CONFIG.GOAL_DISTANCE / 2, CONFIG.TRACK_HEIGHT / 2, laneZ);
 }
 
 function getRandomColor(index) {
     const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#a855f7'];
     return colors[index % colors.length];
-}
-
-function startGame() {
-    const configElements = snailConfigsContainer.children;
-    snails.forEach((snail, i) => {
-        const nameInput = configElements[i].querySelector('.snail-name');
-        snail.name = nameInput.value || `달팽이 ${i+1}`;
-    });
-    setupScreen.classList.add('opacity-0');
-    setTimeout(() => {
-        setupScreen.classList.add('hidden');
-        gameHud.classList.remove('hidden');
-        initHUD();
-        gameState = 'racing';
-        clock.start();
-    }, 500);
 }
 
 function initHUD() {
@@ -262,290 +271,6 @@ function initHUD() {
     });
 }
 
-function initThreeJS() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf1f5f9);
-    scene.fog = new THREE.Fog(0xf1f5f9, 300, 1500);
-
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 10000);
-    camera.position.set(100, 180, 350);
-    camera.lookAt(GOAL_DISTANCE / 2, 0, 0);
-
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(width, height);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-    // 마우스 카메라 조작 활성화
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true; 
-    controls.dampingFactor = 0.05;
-    controls.target.set(GOAL_DISTANCE / 2, 0, 0); 
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    sunLight.position.set(100, 300, 150);
-    sunLight.castShadow = true;
-    sunLight.shadow.camera.left = -300;
-    sunLight.shadow.camera.right = 300;
-    sunLight.shadow.camera.top = 300;
-    sunLight.shadow.camera.bottom = -300;
-    sunLight.shadow.mapSize.set(2048, 2048);
-    scene.add(sunLight);
-
-    pivot = new THREE.Object3D();
-    pivot.position.set(GOAL_DISTANCE / 2, 0, 0);
-    scene.add(pivot);
-
-    // 받침대 (스케일 축소)
-    const fulcrumMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.4, roughness: 0.3 });
-    fulcrum = new THREE.Mesh(new THREE.CylinderGeometry(5, 15, 30, 4), fulcrumMat);
-    fulcrum.position.set(GOAL_DISTANCE / 2, -16.5, 0);
-    scene.add(fulcrum);
-    
-    const joint = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, TRACK_WIDTH + 20, 32), fulcrumMat);
-    joint.rotation.x = Math.PI / 2;
-    joint.position.set(GOAL_DISTANCE/2, -2.5, 0);
-    scene.add(joint);
-
-    // 트랙 (보통 스케일)
-    const trackLength = GOAL_DISTANCE + (TRACK_BUFFER * 2);
-    track = new THREE.Mesh(new THREE.BoxGeometry(trackLength, TRACK_HEIGHT, TRACK_WIDTH), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 }));
-    track.position.set(0, -TRACK_HEIGHT / 2, 0);
-    track.receiveShadow = true;
-    pivot.add(track);
-
-    // 출발선
-    const startLine = new THREE.Mesh(new THREE.PlaneGeometry(5, TRACK_WIDTH), new THREE.MeshStandardMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.5 }));
-    startLine.rotation.x = -Math.PI / 2;
-    startLine.position.set(-GOAL_DISTANCE / 2, TRACK_HEIGHT / 2 + 0.02, 0);
-    track.add(startLine);
-
-    // 도착선
-    const goalLine = new THREE.Mesh(new THREE.PlaneGeometry(8, TRACK_WIDTH), new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.3 }));
-    goalLine.rotation.x = -Math.PI / 2;
-    goalLine.position.set(GOAL_DISTANCE / 2, TRACK_HEIGHT / 2 + 0.02, 0);
-    track.add(goalLine);
-
-    // 보조 가로선 (25m 간격)
-    for(let i = -10; i <= 20; i++) {
-        const xPos = i * 25 - (GOAL_DISTANCE / 2);
-        if (xPos > -trackLength/2 && xPos < trackLength/2) {
-            const line = new THREE.Mesh(
-                new THREE.PlaneGeometry(0.3, TRACK_WIDTH),
-                new THREE.MeshBasicMaterial({ color: 0xf1f5f9 })
-            );
-            line.rotation.x = -Math.PI / 2;
-            line.position.set(xPos, TRACK_HEIGHT / 2 + 0.01, 0);
-            track.add(line);
-        }
-    }
-
-    window.addEventListener('resize', onWindowResize);
-}
-
-function createSnailMesh(color, type) {
-    const snailGroup = new THREE.Group();
-    const isSlippery = (type === 'A');
-
-    // 1. 껍질 (보통 스케일 7.5 -> 3.5)
-    const shellMat = new THREE.MeshStandardMaterial({ 
-        color: color,
-        roughness: isSlippery ? 0.05 : 0.8,
-        metalness: isSlippery ? 0.9 : 0.0,
-    });
-    
-    const shellGroup = new THREE.Group();
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(3.5, 32, 32), shellMat);
-    shellGroup.add(shell);
-
-    if (!isSlippery) {
-        const ringGeo = new THREE.TorusGeometry(2.2, 0.7, 16, 32);
-        const ring = new THREE.Mesh(ringGeo, shellMat);
-        ring.rotation.y = Math.PI / 2;
-        ring.position.set(1.5, 0, 0);
-        shellGroup.add(ring);
-    }
-    
-    shellGroup.position.set(-1.5, 4.0, 0);
-    shellGroup.castShadow = true;
-    snailGroup.add(shellGroup);
-
-    // 2. 몸체 (보통 스케일)
-    const bodyMat = new THREE.MeshPhysicalMaterial({ 
-        color: isSlippery ? 0xdbeafe : 0xf8fafc,
-        roughness: isSlippery ? 0.0 : 0.4,
-        transmission: isSlippery ? 0.95 : 0.0,
-        transparent: true,
-        opacity: isSlippery ? 0.85 : 1.0,
-        thickness: 2
-    });
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(1.4, 6, 8, 16), bodyMat);
-    body.rotation.z = Math.PI / 2;
-    body.position.set(0.5, 1.4, 0);
-    body.castShadow = true;
-    snailGroup.add(body);
-
-    // 3. 눈 (보통 스케일)
-    const eyes = new THREE.Group();
-    const pupils = [];
-    [0.6, -0.6].forEach(z => {
-        const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 3), bodyMat);
-        stalk.position.set(2.8, 2.8, z);
-        stalk.rotation.z = -0.4;
-        eyes.add(stalk);
-        
-        const ball = new THREE.Mesh(new THREE.SphereGeometry(0.9, 32, 32), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-        ball.position.set(3.5, 4.2, z);
-        eyes.add(ball);
-        
-        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), new THREE.MeshBasicMaterial({ color: 0x020617 }));
-        pupil.position.set(4.0, 4.2, z);
-        eyes.add(pupil);
-        pupils.push(pupil);
-    });
-    snailGroup.add(eyes);
-
-    track.add(snailGroup);
-    return { group: snailGroup, shell: shellGroup, body, pupils };
-}
-
-function positionSnailInLane(snail, index, total) {
-    const laneZ = (index - (total - 1) / 2) * (TRACK_WIDTH / (total + 0.5));
-    snail.mesh.position.set(-GOAL_DISTANCE / 2, TRACK_HEIGHT / 2, laneZ);
-}
-
-function createAngelMesh() {
-    const group = new THREE.Group();
-
-    // 1. 몸통 (빛나는 원뿔)
-    const bodyMat = new THREE.MeshStandardMaterial({ 
-        color: 0xfffae0, emissive: 0xffd700, emissiveIntensity: 0.6,
-        transparent: true, opacity: 0.9, flatShading: true
-    });
-    const body = new THREE.Mesh(new THREE.ConeGeometry(4, 12, 8), bodyMat);
-    body.position.y = 0;
-    group.add(body);
-
-    // 2. 머리
-    const head = new THREE.Mesh(new THREE.SphereGeometry(2.5, 16, 16), bodyMat);
-    head.position.y = 7;
-    group.add(head);
-
-    // 3. 날개
-    const wingGeo = new THREE.CircleGeometry(6, 4);
-    const wingMat = new THREE.MeshBasicMaterial({ 
-        color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.7 
-    });
-    const w1 = new THREE.Mesh(wingGeo, wingMat);
-    w1.position.set(-4, 4, -2); w1.rotation.y = -0.4;
-    group.add(w1);
-    const w2 = new THREE.Mesh(wingGeo, wingMat);
-    w2.position.set(4, 4, -2); w2.rotation.y = 0.4;
-    group.add(w2);
-
-    // 4. 헤일로 (고리)
-    const halo = new THREE.Mesh(
-        new THREE.TorusGeometry(1.8, 0.3, 8, 24), 
-        new THREE.MeshBasicMaterial({ color: 0xffff00 })
-    );
-    halo.rotation.x = Math.PI / 2;
-    halo.position.set(0, 11, 0);
-    group.add(halo);
-
-    // 5. 스포트라이트 (집중 조명: 각도는 좁게, 트랙은 선명하게)
-    const light = new THREE.SpotLight(0xffdd00, 150, 150, 0.2, 0.4, 1);
-    light.position.set(0, 5, 0);
-    light.target.position.set(0, -50, 0);
-    group.add(light);
-    group.add(light.target);
-
-    return group;
-}
-
-function checkAngelEvent() {
-    if (angelState.triggered || snails.length === 0) return;
-
-    const maxPos = Math.max(...snails.map(s => s.position));
-    if (maxPos / GOAL_DISTANCE >= TRIGGER_DISTANCE_RATIO) {
-        angelState.triggered = true;
-        
-        // 발동 확률 (선택사항이나 "확률적으로 1회" 지침 준수)
-        if (Math.random() > 0.7) return; 
-
-        // 하위 20% 그룹 선정 (오름차순 정렬)
-        const sorted = [...snails].sort((a, b) => a.position - b.position);
-        const bottomCount = Math.max(1, Math.ceil(snails.length * BOTTOM_RANK_RATIO));
-        const candidates = sorted.slice(0, bottomCount);
-        
-        // 그룹 내에서 30% 선정
-        angelState.targets = candidates.filter(() => Math.random() < SELECTION_RATIO);
-        
-        if (angelState.targets.length > 0) {
-            angelState.active = true;
-            angelState.targets.forEach(snail => {
-                const angel = createAngelMesh();
-                snail.angelMesh = angel;
-                scene.add(angel);
-                // 초기 위치: 매우 높은 곳
-                angel.position.set(0, 300, 0); 
-            });
-            angelState.animTimer = 0;
-        }
-    }
-}
-
-const _worldPos = new THREE.Vector3();
-function updateAngelAnimation() {
-    if (!angelState.active) return;
-    
-    angelState.animTimer += DT;
-    const t = angelState.animTimer;
-    
-    const descentTime = 0.3; // 1.0 -> 0.3초로 단축
-    const ascentTime = 0.3;  // 1.0 -> 0.3초로 단축
-    
-    let targetYOffset;
-    if (t < descentTime) { // 하강
-        targetYOffset = THREE.MathUtils.lerp(300, 45, t / descentTime);
-    } else if (t < BOOST_DURATION + descentTime) { // 체공 및 버프 유지
-        targetYOffset = 45 + Math.sin(t * 3) * 2;
-    } else { // 상승 및 소멸
-        const ascendT = (t - (BOOST_DURATION + descentTime)) / ascentTime;
-        targetYOffset = THREE.MathUtils.lerp(45, 300, ascendT);
-        if (ascendT > 1.0) {
-            angelState.targets.forEach(snail => {
-                if (snail.angelMesh) {
-                    scene.remove(snail.angelMesh);
-                    delete snail.angelMesh;
-                }
-            });
-            angelState.active = false;
-            angelState.targets = [];
-            return;
-        }
-    }
-
-    // 각 천사의 위치를 대응하는 달팽이의 머리 위로 실시간 업데이트
-    angelState.targets.forEach(snail => {
-        if (snail.angelMesh) {
-            snail.mesh.getWorldPosition(_worldPos);
-            snail.angelMesh.position.copy(_worldPos);
-            snail.angelMesh.position.y += targetYOffset;
-        }
-    });
-}
-
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
 function animate() {
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
@@ -553,26 +278,62 @@ function animate() {
     if (gameState === 'setup') {
         snails.forEach((snail, i) => {
             const time = performance.now() * 0.002;
-            snail.mesh.position.y = (TRACK_HEIGHT / 2) + Math.sin(time + i) * 0.4;
+            snail.mesh.position.y = (CONFIG.TRACK_HEIGHT / 2) + Math.sin(time + i) * 0.4;
         });
-        pivot.rotation.z = Math.sin(performance.now() * 0.001) * 0.03;
+        World.pivot.rotation.z = Math.sin(performance.now() * 0.001) * 0.03;
     } else {
         accumulator += delta;
-        while (accumulator >= DT) {
+        while (accumulator >= CONFIG.DT) {
             updateGameLogic();
-            accumulator -= DT;
+            accumulator -= CONFIG.DT;
         }
     }
-    if (controls) controls.update();
-    renderer.render(scene, camera);
+    if (World.controls) World.controls.update();
+    World.renderer.render(World.scene, World.camera);
 }
 
 function updateGameLogic() {
     if (gameState === 'racing') {
         updateSeesawLogic();
-        checkAngelEvent();
-        updateAngelAnimation();
-        snails.forEach(snail => updateSnailPhysics(snail));
+        
+        if (Simulation.checkAngelEvent(snails, CONFIG.GOAL_DISTANCE, angelState, CONFIG)) {
+            angelState.targets.forEach(snail => {
+                const angel = Simulation.createAngelMesh();
+                snail.angelMesh = angel;
+                World.scene.add(angel);
+                angel.position.set(0, 300, 0); 
+            });
+        }
+        
+        Simulation.updateAngelAnimation(angelState, CONFIG.DT, World.scene, CONFIG.BOOST_DURATION);
+        
+        snails.forEach(snail => {
+            Simulation.updateSnailPhysics(snail, {
+                dt: CONFIG.DT,
+                seesawValue,
+                goalDistance: CONFIG.GOAL_DISTANCE,
+                trackHeight: CONFIG.TRACK_HEIGHT,
+                baseSpeedMean: CONFIG.BASE_SPEED_MEAN,
+                speedVariance: CONFIG.SPEED_VARIANCE,
+                conditionInterval: CONFIG.CONDITION_INTERVAL,
+                conditionSmoothing: CONFIG.CONDITION_SMOOTHING,
+                isAngelActive: angelState.active,
+                isTarget: angelState.targets.includes(snail),
+                angelAnimTimer: angelState.animTimer,
+                boostMultiplier: CONFIG.BOOST_MULTIPLIER
+            });
+            Simulation.createSlimeTrail(snail, World.track, CONFIG.TRACK_HEIGHT, CONFIG.GOAL_DISTANCE);
+            
+            // HUD 업데이트
+            const progress = Math.min(100, ((snail.position + 5) / CONFIG.GOAL_DISTANCE) * 100);
+            snail.hudElement.querySelector('.progress-bar').style.width = `${progress}%`;
+            snail.hudElement.querySelector('.speed-val').innerText = `${snail.speed.toFixed(1)} m/s`;
+
+            if (snail.position + 5 >= CONFIG.GOAL_DISTANCE && !winners.includes(snail)) {
+                winners.push(snail);
+                if (winners.length === 1) endGame();
+            }
+        });
         
         // 타이머 업데이트
         const time = clock.elapsedTime;
@@ -581,102 +342,17 @@ function updateGameLogic() {
         const cents = Math.floor((time % 1) * 100);
         gameTimer.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${cents.toString().padStart(2, '0')}`;
     } else if (gameState === 'finished') {
-        snails.forEach(snail => { if (snail.isDead) updateDeathAnimation(snail); });
+        snails.forEach(snail => { 
+            if (snail.isDead) Simulation.updateDeathAnimation(snail, CONFIG.DT, CONFIG.TRACK_HEIGHT); 
+        });
     }
 }
 
 function updateSeesawLogic() {
     if (Math.random() < 0.01) seesawTarget = (Math.random() * 2) - 1;
     seesawValue += (seesawTarget - seesawValue) * 0.04;
-    pivot.rotation.z = -seesawValue * (Math.PI / 12);
+    World.pivot.rotation.z = -seesawValue * (Math.PI / 12);
     seesawValDisplay.innerText = seesawValue.toFixed(2);
-}
-
-function updateSnailPhysics(snail) {
-    snail.conditionTimer -= DT;
-    if (snail.conditionTimer <= 0) {
-        snail.targetBaseSpeed = BASE_SPEED_MEAN + (Math.random() * 2 - 1) * SPEED_VARIANCE;
-        snail.conditionTimer = CONDITION_INTERVAL * (0.5 + Math.random());
-    }
-    snail.currentBaseSpeed += (snail.targetBaseSpeed - snail.currentBaseSpeed) * CONDITION_SMOOTHING;
-
-    const finalVelocity = snail.currentBaseSpeed + (seesawValue * snail.sensitivity);
-    
-    // --- [추가] 부스터 효과 적용 (천사가 0.2초 이상 내려온 시점부터 발동) ---
-    let effectiveVelocity = finalVelocity;
-    if (angelState.active && angelState.targets.includes(snail) && angelState.animTimer > 0.2) {
-        effectiveVelocity *= BOOST_MULTIPLIER;
-    }
-
-    snail.speed = effectiveVelocity;
-    snail.position += effectiveVelocity * DT;
-    if (snail.position < 0) snail.position = 0;
-
-    // --- 시각적 업데이트 (앞뒤 수축/팽창 방식) ---
-    snail.mesh.position.x = snail.position - (GOAL_DISTANCE / 2);
-    
-    // 1. 수직 바운스 제거 (트랙 표면에 밀착)
-    snail.mesh.position.y = (TRACK_HEIGHT / 2);
-    
-    // 2. 기어가는 리듬 계산 (위치 기반 사인파)
-    const crawlFrequency = 0.15; // 기어가는 주기
-    const crawlCycle = Math.sin(snail.position * crawlFrequency);
-    
-    // 3. 앞뒤 수축/팽창 (Squash and Stretch)
-    const stretchIntensity = snail.type === 'A' ? 0.5 : 0.25; 
-    const baseStretch = 1 + (effectiveVelocity / (snail.type === 'A' ? 40 : 80));
-    const rhythmicStretch = crawlCycle * stretchIntensity;
-    
-    const finalStretch = Math.max(0.5, baseStretch + rhythmicStretch);
-    snail.body.scale.set(1, finalStretch, 1); 
-    
-    // 4. 껍질과 눈의 미세 반응
-    snail.shell.position.x = -1.5 + (crawlCycle * 0.7); 
-    snail.shell.rotation.z = -effectiveVelocity * 0.01 - (crawlCycle * 0.1);
-
-    snail.pupils.forEach(p => {
-        const time = performance.now() * 0.01;
-        p.position.x = 0.4 + Math.sin(time) * 0.05 + (crawlCycle * 0.1);
-    });
-
-    createSlimeTrail(snail);
-
-    // 머리 위치 보정 (약 5m 앞)
-    const progress = Math.min(100, ((snail.position + 5) / GOAL_DISTANCE) * 100);
-    snail.hudElement.querySelector('.progress-bar').style.width = `${progress}%`;
-    snail.hudElement.querySelector('.speed-val').innerText = `${effectiveVelocity.toFixed(1)} m/s`;
-
-    if (snail.position + 5 >= GOAL_DISTANCE && !winners.includes(snail)) {
-        winners.push(snail);
-        if (winners.length === 1) endGame();
-    }
-}
-
-function updateDeathAnimation(snail) {
-    snail.deathAnim = Math.min(1, snail.deathAnim + 0.06);
-    snail.mesh.rotation.x = snail.deathAnim * (Math.PI / 2.1);
-    snail.mesh.position.y = (TRACK_HEIGHT / 2) + (snail.deathAnim * 2.0);
-    snail.mesh.scale.y = 1 - (snail.deathAnim * 0.7);
-    snail.pupils.forEach(p => p.material.color.set(0x000000));
-}
-
-function createSlimeTrail(snail) {
-    if (Math.random() < 0.2) {
-        const trail = new THREE.Mesh(
-            new THREE.PlaneGeometry(3, 4), 
-            new THREE.MeshBasicMaterial({ color: snail.color, transparent: true, opacity: 0.15, side: THREE.DoubleSide })
-        );
-        trail.rotation.x = -Math.PI / 2;
-        trail.position.set(snail.position - (GOAL_DISTANCE / 2) - 4, TRACK_HEIGHT / 2 + 0.02, snail.mesh.position.z);
-        track.add(trail);
-        snail.trail.push(trail);
-        if (snail.trail.length > 70) {
-            const old = snail.trail.shift();
-            track.remove(old);
-            old.geometry.dispose();
-            old.material.dispose();
-        }
-    }
 }
 
 function endGame() {
