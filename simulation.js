@@ -177,18 +177,15 @@ export function checkAngelEvent(snails, goalDistance, angelState, config) {
     if (angelState.triggered || snails.length === 0) return;
 
     const maxPos = Math.max(...snails.map(s => s.position));
-    // 대소문자 수정: triggerDistanceRatio -> TRIGGER_DISTANCE_RATIO
     if (maxPos / goalDistance >= config.TRIGGER_DISTANCE_RATIO) {
         if (Math.random() > config.EVENT_TRIGGER_CHANCE) return; 
 
         angelState.triggered = true; 
         
         const sorted = [...snails].sort((a, b) => a.position - b.position);
-        // 대소문자 수정: bottomRankRatio -> BOTTOM_RANK_RATIO
         const bottomCount = Math.max(1, Math.ceil(snails.length * config.BOTTOM_RANK_RATIO));
         const candidates = sorted.slice(0, bottomCount);
         
-        // 대소문자 수정: selectionRatio -> SELECTION_RATIO
         angelState.targets = candidates.filter(() => Math.random() < config.SELECTION_RATIO);
         
         if (angelState.targets.length > 0) {
