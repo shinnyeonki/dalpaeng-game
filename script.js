@@ -377,7 +377,8 @@ function initHUD() {
             snail.mesh.getWorldPosition(worldPos);
             
             // 초기 위치 설정 (추적 시작 시 한 번만 점프)
-            World.camera.position.set(worldPos.x - 10, 8, worldPos.z - 40);
+            // 뒤쪽(-15) 약간 위(y+7)에서 달팽이와 경주 방향을 함께 바라보는 시점
+            World.camera.position.set(worldPos.x - 15, worldPos.y + 15, worldPos.z);
             World.controls.target.copy(worldPos);
             World.controls.enablePan = false; // 추적 중에는 수동 이동(Pan) 제한 (회전/확대만 허용)
         };
