@@ -16,7 +16,7 @@ sudo rm -rf /var/www/dalpaeng.mmv.kr/style.css
 echo "Copying new dist to remote location..."
 sudo cp -r index.html /var/www/dalpaeng.mmv.kr/
 sudo cp -r script.js /var/www/dalpaeng.mmv.kr/
-sudo cp -r ssimulation.js var/www/dalpaeng.mmv.kr/
+sudo cp -r simulation.js /var/www/dalpaeng.mmv.kr/
 sudo cp -r world.js /var/www/dalpaeng.mmv.kr/
 sudo cp -r style.css /var/www/dalpaeng.mmv.kr/
 
