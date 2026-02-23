@@ -13,8 +13,8 @@ const SPEED_VARIANCE = 10.0;
 const CONDITION_INTERVAL = 1.5;
 const CONDITION_SMOOTHING = 0.03;
 
-const SENSITIVITY_A = 12.0;
-const SENSITIVITY_B = 8.0;
+const SENSITIVITY_A = 8.0;
+const SENSITIVITY_B = 3.0;
 
 // --- 게임 상태 ---
 let gameState = 'setup';
