@@ -3,21 +3,21 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // --- 상수 설정 (보통 스케일로 정상화) ---
 const GOAL_DISTANCE = 200.0; 
-const TRACK_WIDTH = 70.0;   
+const TRACK_WIDTH = 120.0;   
 const TRACK_BUFFER = 25.0;   
 const TRACK_HEIGHT = 5.0;   
 
-// const BASE_SPEED_MEAN = 6.0;
-const BASE_SPEED_MEAN = 20.0;
-// const SPEED_VARIANCE = 4.0;
-const SPEED_VARIANCE = 15.0;
+const BASE_SPEED_MEAN = 6.0;
+// const BASE_SPEED_MEAN = 20.0;
+const SPEED_VARIANCE = 4.0;
+// const SPEED_VARIANCE = 15.0;
 
-const SENSITIVITY_A = 4.0;
-const SENSITIVITY_B = 1.5;
+const SLOPE_SENSITIVITY_A = 4.0;
+const SLOPE_SENSITIVITY_B = 1.5;
 
 // --- [추가] 천사 이벤트 상수 ---
 const TRIGGER_DISTANCE_RATIO = 0.3; // 선두가 30% 지점 통과 시 발동 시도
-const BOTTOM_RANK_RATIO = 0.2;      // 하위 20% 그룹 선정
+const BOTTOM_RANK_RATIO = 0.4;      // 하위 20% 그룹 선정
 const SELECTION_RATIO = 1;        // 그 그룹 내에서 30% 당첨
 const BOOST_MULTIPLIER = 2.5;       // 속도 2.5배
 const BOOST_DURATION = 4.0;         // 4초간 지속
@@ -60,15 +60,35 @@ const resultOverlay = document.getElementById('result-overlay');
 const winnerText = document.getElementById('winner-text');
 const snailInfo = document.getElementById('snail-info');
 const gameTimer = document.getElementById('game-timer');
+const loadSettingsContainer = document.getElementById('load-settings-container');
+const loadSettingsBtn = document.getElementById('load-settings-btn');
 
 function init() {
     initThreeJS();
+    
+    // 이전 설정이 있는지 확인
+    const hasSaved = localStorage.getItem('snail-configs');
+    if (hasSaved) {
+        loadSettingsContainer.classList.remove('hidden');
+    }
+
+    loadSettingsBtn.addEventListener('click', () => {
+        const savedCount = localStorage.getItem('snail-count');
+        if (savedCount) {
+            snailCountInput.value = savedCount;
+            snailCountDisplay.innerText = `${savedCount}마리`;
+        }
+        updateSnailConfigs(true);
+        loadSettingsContainer.classList.add('hidden');
+    });
+
     snailCountInput.addEventListener('input', (e) => {
         snailCountDisplay.innerText = `${e.target.value}마리`;
+        localStorage.setItem('snail-count', e.target.value);
         updateSnailConfigs();
     });
     startBtn.addEventListener('click', startGame);
-    updateSnailConfigs();
+    updateSnailConfigs(false); // 기본은 새로 시작
     animate();
 }
 
@@ -78,8 +98,20 @@ function updateSnailConfigs() {
     snails.forEach(s => { if(s.mesh) track.remove(s.mesh); });
     snails = [];
 
+    // 이전 설정 불러오기
+    let savedConfigs = [];
+    try {
+        savedConfigs = JSON.parse(localStorage.getItem('snail-configs')) || [];
+    } catch (e) {
+        console.error('Failed to parse snail-configs', e);
+    }
+
     for (let i = 0; i < count; i++) {
-        const defaultColor = getRandomColor(i);
+        const saved = savedConfigs[i] || {};
+        const defaultColor = saved.color || getRandomColor(i);
+        const defaultName = saved.name || `달팽이 ${i+1}`;
+        const defaultType = saved.type || 'A';
+
         const configDiv = document.createElement('div');
         configDiv.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md';
         configDiv.innerHTML = `
@@ -87,15 +119,15 @@ function updateSnailConfigs() {
                 <div class="space-y-3">
                     <div class="flex gap-2 items-center">
                         <span class="text-xs font-black text-slate-300 uppercase">#${i+1}</span>
-                        <input type="text" placeholder="달팽이 ${i+1}" class="snail-name bg-transparent border-b-2 border-slate-100 focus:border-blue-400 outline-none w-full text-sm font-bold text-slate-800">
+                        <input type="text" value="${defaultName}" placeholder="달팽이 ${i+1}" class="snail-name bg-transparent border-b-2 border-slate-100 focus:border-blue-400 outline-none w-full text-sm font-bold text-slate-800">
                     </div>
                     <div class="flex gap-4">
                         <label class="flex items-center gap-2 cursor-pointer group">
-                            <input type="radio" name="type-${i}" value="A" checked class="snail-type hidden">
+                            <input type="radio" name="type-${i}" value="A" ${defaultType === 'A' ? 'checked' : ''} class="snail-type hidden">
                             <span class="type-btn px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider">미끌미끌 달팽이</span>
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer group">
-                            <input type="radio" name="type-${i}" value="B" class="snail-type hidden">
+                            <input type="radio" name="type-${i}" value="B" ${defaultType === 'B' ? 'checked' : ''} class="snail-type hidden">
                             <span class="type-btn px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider">빤딱빤딱 달팽이</span>
                         </label>
                     </div>
@@ -107,34 +139,51 @@ function updateSnailConfigs() {
         `;
         snailConfigsContainer.appendChild(configDiv);
 
-        addSnail(i, defaultColor, 'A', count);
+        addSnail(i, defaultColor, defaultType, count, defaultName);
+
+        configDiv.querySelector('.snail-name').oninput = (e) => {
+            snails[i].name = e.target.value || `달팽이 ${i+1}`;
+            saveCurrentConfigs();
+        };
 
         configDiv.querySelector('.snail-color').oninput = (e) => {
             const snail = snails[i];
             snail.color = e.target.value;
             refreshSnailMesh(snail, i, count);
+            saveCurrentConfigs();
         };
         configDiv.querySelectorAll('input[type="radio"]').forEach(radio => {
             radio.onchange = (e) => {
                 if (e.target.checked) {
                     const snail = snails[i];
                     snail.type = e.target.value;
-                    snail.sensitivity = snail.type === 'A' ? SENSITIVITY_A : SENSITIVITY_B;
+                    snail.sensitivity = snail.type === 'A' ? SLOPE_SENSITIVITY_A : SLOPE_SENSITIVITY_B;
                     refreshSnailMesh(snail, i, count);
+                    saveCurrentConfigs();
                 }
             };
         });
     }
+    saveCurrentConfigs();
 }
 
-function addSnail(index, color, type, total) {
+function saveCurrentConfigs() {
+    const configs = snails.map(s => ({
+        name: s.name,
+        type: s.type,
+        color: s.color
+    }));
+    localStorage.setItem('snail-configs', JSON.stringify(configs));
+}
+
+function addSnail(index, color, type, total, name) {
     const visual = createSnailMesh(color, type);
     const snail = {
         id: index,
-        name: `달팽이 ${index+1}`,
+        name: name || `달팽이 ${index+1}`,
         color: color,
         type: type,
-        sensitivity: type === 'A' ? SENSITIVITY_A : SENSITIVITY_B,
+        sensitivity: type === 'A' ? SLOPE_SENSITIVITY_A : SLOPE_SENSITIVITY_B,
         position: 0,
         speed: 0,
         currentBaseSpeed: BASE_SPEED_MEAN,
@@ -164,7 +213,7 @@ function refreshSnailMesh(snail, index, total) {
 }
 
 function getRandomColor(index) {
-    const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'];
+    const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#a855f7'];
     return colors[index % colors.length];
 }
 
@@ -446,13 +495,16 @@ function updateAngelAnimation() {
     angelState.animTimer += DT;
     const t = angelState.animTimer;
     
+    const descentTime = 0.3; // 1.0 -> 0.3초로 단축
+    const ascentTime = 0.3;  // 1.0 -> 0.3초로 단축
+    
     let targetYOffset;
-    if (t < 1.0) { // 하강 (1초)
-        targetYOffset = THREE.MathUtils.lerp(300, 45, t);
-    } else if (t < BOOST_DURATION + 1.0) { // 체공 및 버프 유지 (4초)
+    if (t < descentTime) { // 하강
+        targetYOffset = THREE.MathUtils.lerp(300, 45, t / descentTime);
+    } else if (t < BOOST_DURATION + descentTime) { // 체공 및 버프 유지
         targetYOffset = 45 + Math.sin(t * 3) * 2;
-    } else { // 상승 및 소멸 (1초)
-        const ascendT = (t - (BOOST_DURATION + 1.0));
+    } else { // 상승 및 소멸
+        const ascendT = (t - (BOOST_DURATION + descentTime)) / ascentTime;
         targetYOffset = THREE.MathUtils.lerp(45, 300, ascendT);
         if (ascendT > 1.0) {
             angelState.targets.forEach(snail => {
@@ -539,9 +591,9 @@ function updateSnailPhysics(snail) {
 
     const finalVelocity = snail.currentBaseSpeed + (seesawValue * snail.sensitivity);
     
-    // --- [추가] 부스터 효과 적용 ---
+    // --- [추가] 부스터 효과 적용 (천사가 0.2초 이상 내려온 시점부터 발동) ---
     let effectiveVelocity = finalVelocity;
-    if (angelState.active && angelState.targets.includes(snail)) {
+    if (angelState.active && angelState.targets.includes(snail) && angelState.animTimer > 0.2) {
         effectiveVelocity *= BOOST_MULTIPLIER;
     }
 
