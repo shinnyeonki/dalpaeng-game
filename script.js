@@ -66,6 +66,10 @@ let zoomVelocity = 0;          // 줌 변화량 (Velocity Control)
 function init() {
     World.initWorld('canvas-container', CONFIG.GOAL_DISTANCE, CONFIG.TRACK_WIDTH, CONFIG.TRACK_HEIGHT, CONFIG.TRACK_BUFFER);
     
+    // 천사 오브젝트 풀 초기화 및 셰이더 프리컴파일 (스터터링 방지)
+    Simulation.initAngelPool(World.scene, 10);
+    World.renderer.compile(World.scene, World.camera);
+
     // 이전에 저장된 설정이 있는지 확인만 함
     const hasSaved = localStorage.getItem('snail-configs');
     if (hasSaved) {
@@ -442,14 +446,7 @@ function updateGameLogic() {
     if (gameState === 'racing') {
         updateSeesawLogic();
         
-        if (Simulation.checkAngelEvent(snails, CONFIG.GOAL_DISTANCE, angelState, CONFIG)) {
-            angelState.targets.forEach(snail => {
-                const angel = Simulation.createAngelMesh();
-                snail.angelMesh = angel;
-                World.scene.add(angel);
-                angel.position.set(0, 300, 0); 
-            });
-        }
+        Simulation.checkAngelEvent(snails, CONFIG.GOAL_DISTANCE, angelState, CONFIG);
         
         Simulation.updateAngelAnimation(angelState, CONFIG.DT, World.scene, CONFIG.BOOST_DURATION);
         

@@ -65,6 +65,27 @@ export function createSnailMesh(color, type) {
     return { group: snailGroup, shell: shellGroup, body, pupils };
 }
 
+let angelPool = [];
+
+export function initAngelPool(scene, poolSize = 10) {
+    for (let i = 0; i < poolSize; i++) {
+        const angel = createAngelMesh();
+        angel.visible = false;
+        scene.add(angel);
+        angelPool.push(angel);
+    }
+}
+
+function getAngelFromPool() {
+    const angel = angelPool.find(a => !a.visible);
+    if (angel) {
+        angel.visible = true;
+        return angel;
+    }
+    // 풀이 부족할 경우 대비 (실제로는 넉넉히 잡음)
+    return null; 
+}
+
 export function createAngelMesh() {
     const group = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ 
@@ -189,6 +210,13 @@ export function checkAngelEvent(snails, goalDistance, angelState, config) {
         angelState.targets = candidates.filter(() => Math.random() < config.SELECTION_RATIO);
         
         if (angelState.targets.length > 0) {
+            angelState.targets.forEach(snail => {
+                const angel = getAngelFromPool();
+                if (angel) {
+                    snail.angelMesh = angel;
+                    angel.position.set(0, 300, 0); 
+                }
+            });
             angelState.active = true;
             angelState.animTimer = 0;
             return true; 
@@ -218,7 +246,7 @@ export function updateAngelAnimation(angelState, dt, scene, boostDuration) {
         if (ascendT > 1.0) {
             angelState.targets.forEach(snail => {
                 if (snail.angelMesh) {
-                    scene.remove(snail.angelMesh);
+                    snail.angelMesh.visible = false;
                     delete snail.angelMesh;
                 }
             });
