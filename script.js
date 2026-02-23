@@ -7,14 +7,14 @@ const TRACK_WIDTH = 70.0;
 const TRACK_BUFFER = 25.0;   
 const TRACK_HEIGHT = 5.0;   
 const DT = 0.016;
-const BASE_SPEED_MEAN = 6.0;
-const SPEED_VARIANCE = 6.0;
+const BASE_SPEED_MEAN = 10.0;
+const SPEED_VARIANCE = 10.0;
 
-const CONDITION_INTERVAL = 1.5; 
+const CONDITION_INTERVAL = 1.5;
 const CONDITION_SMOOTHING = 0.03;
 
-const SENSITIVITY_A = 22.0; 
-const SENSITIVITY_B = 7.0;  
+const SENSITIVITY_A = 15.0;
+const SENSITIVITY_B = 5.0;
 
 // --- 게임 상태 ---
 let gameState = 'setup';
