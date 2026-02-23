@@ -59,6 +59,10 @@ const gameTimer = document.getElementById('game-timer');                 // 경�
 const loadSettingsContainer = document.getElementById('load-settings-container'); // '이전 설정 불러오기' 영역
 const loadSettingsBtn = document.getElementById('load-settings-btn');     // 실제 불러오기 버튼
 
+// --- 🎥 카메라 제어 상태 ---
+let cameraTargetSnail = null;  // 현재 카메라가 추적 중인 달팽이 객체
+let zoomVelocity = 0;          // 줌 변화량 (Velocity Control)
+
 function init() {
     World.initWorld('canvas-container', CONFIG.GOAL_DISTANCE, CONFIG.TRACK_WIDTH, CONFIG.TRACK_HEIGHT, CONFIG.TRACK_BUFFER);
     
@@ -90,7 +94,114 @@ function init() {
     
     // 초기 실행: 저장된 데이터가 아니라 기본값으로 화면을 구성 (저장은 하지 않음)
     updateSnailConfigs(false);
+    initCameraUI();
     animate();
+}
+
+function initCameraUI() {
+    // 추적 해제용 헬퍼
+    const clearTracking = () => {
+        cameraTargetSnail = null;
+        World.controls.enablePan = true;
+    };
+
+    // 줌 슬라이더 (Velocity Control)
+    const zoomSlider = document.getElementById('zoom-slider');
+    zoomSlider.oninput = (e) => {
+        zoomVelocity = -parseFloat(e.target.value) * 10.0; // 값에 비례하여 속도 조절
+    };
+    // 슬라이더 조절 후 떼면 0으로 복구 (선택 사항 - 문서에는 변화량 제어라고만 되어있음)
+    zoomSlider.onmouseup = () => {
+        zoomSlider.value = 0;
+        zoomVelocity = 0;
+    };
+
+    // 이동 버튼 (Pan)
+    const moveButtons = {
+        'cam-move-up': new THREE.Vector3(0, 1, 0),
+        'cam-move-down': new THREE.Vector3(0, -1, 0),
+        'cam-move-left': new THREE.Vector3(-1, 0, 0),
+        'cam-move-right': new THREE.Vector3(1, 0, 0)
+    };
+
+    Object.entries(moveButtons).forEach(([id, dir]) => {
+        const btn = document.getElementById(id);
+        let interval;
+        const startMoving = () => {
+            clearTracking(); // 수동 이동 시 추적 해제
+            interval = setInterval(() => {
+                const panSpeed = 5;
+                const offset = dir.clone().multiplyScalar(panSpeed);
+                World.camera.position.add(offset);
+                World.controls.target.add(offset);
+            }, 16);
+        };
+        const stopMoving = () => clearInterval(interval);
+        btn.onmousedown = startMoving;
+        btn.onmouseup = stopMoving;
+        btn.onmouseleave = stopMoving;
+    });
+
+    // 프리셋 버튼
+    document.getElementById('cam-preset-default').onclick = () => {
+        clearTracking();
+        setCameraPreset(100, 180, 350, CONFIG.GOAL_DISTANCE / 2, 0, 0);
+    };
+    document.getElementById('cam-preset-start').onclick = () => {
+        clearTracking();
+        setCameraPreset(-100, 60, 120, 0, 0, 0);
+    };
+    document.getElementById('cam-preset-end').onclick = () => {
+        clearTracking();
+        setCameraPreset(CONFIG.GOAL_DISTANCE + 100, 60, 120, CONFIG.GOAL_DISTANCE, 0, 0);
+    };
+
+    // 회전 패드 드래그 로직 (UI에서 직접 회전)
+    const rotatePad = document.getElementById('cam-rotate-pad');
+    let isRotating = false;
+    let lastX, lastY;
+
+    rotatePad.onmousedown = (e) => {
+        isRotating = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        // 회전 중에는 추적 유지 (Pan만 아니면 됨)
+    };
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isRotating) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+
+        const rotateSpeed = 0.005;
+        // OrbitControls의 내부 상태를 직접 변경하거나 
+        // controls.rotateLeft/Up 메서드 사용 (addons/OrbitControls에는 이 메서드들이 있음)
+        World.controls.rotateLeft(dx * rotateSpeed * 2);
+        World.controls.rotateUp(dy * rotateSpeed * 2);
+        World.controls.update();
+    });
+
+    window.addEventListener('mouseup', () => {
+        isRotating = false;
+    });
+
+    // 회전 동기화 (Globe UI)
+    const globe = document.getElementById('camera-globe');
+    World.controls.addEventListener('change', () => {
+        const az = World.controls.getAzimuthalAngle();
+        const pol = World.controls.getPolarAngle();
+        // 간단한 시각적 회전 피드백
+        globe.style.transform = `rotateY(${az * 180 / Math.PI}deg) rotateX(${pol * 180 / Math.PI - 90}deg)`;
+    });
+}
+
+function setCameraPreset(px, py, pz, tx, ty, tz) {
+    // 부드러운 이동을 위해 TWEEN 등을 쓸 수도 있지만 여기선 즉시 변경
+    World.camera.position.set(px, py, pz);
+    World.controls.target.set(tx, ty, tz);
+    World.controls.update();
 }
 
 function updateSnailConfigs(loadFromStorage = false) {
@@ -199,6 +310,7 @@ function startGame() {
     setTimeout(() => {
         setupScreen.classList.add('hidden');
         gameHud.classList.remove('hidden');
+        document.getElementById('camera-controls').classList.remove('hidden');
         initHUD();
         gameState = 'racing';
         clock.start();
@@ -257,7 +369,18 @@ function initHUD() {
     snailInfo.innerHTML = '';
     snails.forEach(snail => {
         const div = document.createElement('div');
-        div.className = 'flex items-center gap-2 text-sm';
+        div.className = 'flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50/50 p-1 rounded-lg transition-colors pointer-events-auto';
+        div.onclick = () => {
+            cameraTargetSnail = snail;
+            // // 추적 시점: 달팽이 약간 위에서 정면(경주 방향)을 바라보는 뷰
+            const worldPos = new THREE.Vector3();
+            snail.mesh.getWorldPosition(worldPos);
+            
+            // 초기 위치 설정 (추적 시작 시 한 번만 점프)
+            World.camera.position.set(worldPos.x - 10, 8, worldPos.z - 40);
+            World.controls.target.copy(worldPos);
+            World.controls.enablePan = false; // 추적 중에는 수동 이동(Pan) 제한 (회전/확대만 허용)
+        };
         div.innerHTML = `
             <div class="w-2 h-2 rounded-full shadow-sm" style="background-color: ${snail.color}"></div>
             <div class="font-black min-w-[50px] text-[10px] tracking-wider text-slate-700 uppercase truncate">${snail.name}</div>
@@ -274,6 +397,28 @@ function initHUD() {
 function animate() {
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
+
+    // --- 카메라 제어 업데이트 ---
+    if (cameraTargetSnail) {
+        const worldPos = new THREE.Vector3();
+        cameraTargetSnail.mesh.getWorldPosition(worldPos);
+        
+        // 달팽이의 실제 이동량(Delta)을 계산
+        const moveDelta = new THREE.Vector3().subVectors(worldPos, World.controls.target);
+        
+        // 타겟과 카메라 위치를 동시에 이동시켜 상대적 거리와 각도를 완벽하게 유지
+        World.controls.target.add(moveDelta);
+        World.camera.position.add(moveDelta);
+        
+        // OrbitControls 내부 상태 동기화
+        World.controls.update();
+    }
+
+    if (Math.abs(zoomVelocity) > 0.1) {
+        const zoomDir = new THREE.Vector3();
+        World.camera.getWorldDirection(zoomDir);
+        World.camera.position.addScaledVector(zoomDir, -zoomVelocity);
+    }
 
     if (gameState === 'setup') {
         snails.forEach((snail, i) => {

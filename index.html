@@ -84,6 +84,45 @@
                 </button>
             </div>
         </div>
+
+        <!-- 카메라 컨트롤 UI -->
+        <div id="camera-controls" class="hidden absolute bottom-6 right-6 flex flex-col items-end gap-6 pointer-events-none">
+            <!-- 프리셋 버튼 -->
+            <div class="flex gap-2 pointer-events-auto">
+                <button id="cam-preset-default" class="cam-btn px-4 py-2 bg-white/80 backdrop-blur-md rounded-xl shadow-lg border border-white/50 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-blue-600 transition-colors">기본</button>
+                <button id="cam-preset-start" class="cam-btn px-4 py-2 bg-white/80 backdrop-blur-md rounded-xl shadow-lg border border-white/50 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-blue-600 transition-colors">출발점</button>
+                <button id="cam-preset-end" class="cam-btn px-4 py-2 bg-white/80 backdrop-blur-md rounded-xl shadow-lg border border-white/50 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-blue-600 transition-colors">도착점</button>
+            </div>
+
+            <div class="flex items-center gap-6 pointer-events-auto">
+                <!-- 확대/축소 슬라이더 (Velocity Control) -->
+                <div class="flex flex-col items-center gap-2">
+                    <div class="h-32 w-4 bg-slate-200/50 backdrop-blur-sm rounded-full relative border border-white/20">
+                        <input type="range" id="zoom-slider" min="-1" max="1" step="0.01" value="0" class="absolute -inset-x-[54px] top-14 w-32 h-4 -rotate-90 appearance-none bg-transparent cursor-pointer accent-blue-500">
+                    </div>
+                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Zoom Rate</span>
+                </div>
+
+                <!-- 조이스틱 (이동/회전) -->
+                <div class="relative w-32 h-32 bg-white/80 backdrop-blur-md rounded-full shadow-2xl border border-white/50 flex items-center justify-center group overflow-hidden">
+                    <!-- 회전용 구체 (CSS로 구현) -->
+                    <div id="camera-globe" class="absolute inset-0 rounded-full opacity-20 pointer-events-none bg-gradient-to-br from-blue-500 via-transparent to-slate-400"></div>
+                    
+                    <!-- 이동용 방향 버튼 -->
+                    <div class="absolute inset-0 grid grid-cols-3 grid-rows-3 p-1">
+                        <button id="cam-move-up" class="col-start-2 row-start-1 hover:text-blue-500 transition-colors text-slate-300">▲</button>
+                        <button id="cam-move-left" class="col-start-1 row-start-2 hover:text-blue-500 transition-colors text-slate-300">◀</button>
+                        <button id="cam-move-right" class="col-start-3 row-start-2 hover:text-blue-500 transition-colors text-slate-300">▶</button>
+                        <button id="cam-move-down" class="col-start-2 row-start-3 hover:text-blue-500 transition-colors text-slate-300">▼</button>
+                    </div>
+
+                    <!-- 중앙 회전 드래그 영역 -->
+                    <div id="cam-rotate-pad" class="w-16 h-16 rounded-full bg-slate-100/50 border border-slate-200 shadow-inner flex items-center justify-center cursor-move z-10 group-hover:scale-110 transition-transform">
+                        <div class="w-2 h-2 rounded-full bg-blue-500/30 animate-ping"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 3D 캔버스 컨테이너 -->

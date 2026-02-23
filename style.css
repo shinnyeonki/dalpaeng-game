@@ -42,3 +42,68 @@ input[type="color"]::-webkit-color-swatch {
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
     border-radius: 1rem;
 }
+
+/* 카메라 컨트롤 관련 스타일 */
+#camera-controls .cam-btn {
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#camera-controls .cam-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.1), 0 10px 10px -6px rgba(59, 130, 246, 0.1);
+}
+
+#camera-controls .cam-btn:active {
+    transform: translateY(0);
+}
+
+#zoom-slider {
+    transform-origin: center;
+    width: 120px;
+    height: 12px;
+    margin: 0;
+    transition: all 0.2s ease;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+}
+
+#zoom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: #3b82f6;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+#zoom-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #3b82f6;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+#zoom-slider:hover {
+    height: 12px;
+}
+
+#camera-globe {
+    transition: transform 0.1s linear;
+}
+
+/* 상하좌우 버튼 포지셔닝 보조 */
+#camera-controls button[id^="cam-move-"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 900;
+}
