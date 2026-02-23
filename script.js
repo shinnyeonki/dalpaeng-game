@@ -92,25 +92,27 @@ function init() {
     animate();
 }
 
-function updateSnailConfigs() {
+let currentSessionConfigs = [];
+
+function updateSnailConfigs(loadFromStorage = false) {
+    if (loadFromStorage) {
+        try {
+            currentSessionConfigs = JSON.parse(localStorage.getItem('snail-configs')) || [];
+        } catch (e) {
+            console.error('Failed to load saved configs', e);
+        }
+    }
+
     const count = parseInt(snailCountInput.value);
     snailConfigsContainer.innerHTML = '';
     snails.forEach(s => { if(s.mesh) track.remove(s.mesh); });
     snails = [];
 
-    // 이전 설정 불러오기
-    let savedConfigs = [];
-    try {
-        savedConfigs = JSON.parse(localStorage.getItem('snail-configs')) || [];
-    } catch (e) {
-        console.error('Failed to parse snail-configs', e);
-    }
-
     for (let i = 0; i < count; i++) {
-        const saved = savedConfigs[i] || {};
-        const defaultColor = saved.color || getRandomColor(i);
-        const defaultName = saved.name || `달팽이 ${i+1}`;
-        const defaultType = saved.type || 'A';
+        const config = currentSessionConfigs[i] || {};
+        const defaultColor = config.color || getRandomColor(i);
+        const defaultName = config.name || `달팽이 ${i+1}`;
+        const defaultType = config.type || 'A';
 
         const configDiv = document.createElement('div');
         configDiv.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md';
@@ -142,15 +144,16 @@ function updateSnailConfigs() {
         addSnail(i, defaultColor, defaultType, count, defaultName);
 
         configDiv.querySelector('.snail-name').oninput = (e) => {
-            snails[i].name = e.target.value || `달팽이 ${i+1}`;
-            saveCurrentConfigs();
+            const val = e.target.value || `달팽이 ${i+1}`;
+            snails[i].name = val;
+            updateSessionConfig(i, 'name', val);
         };
 
         configDiv.querySelector('.snail-color').oninput = (e) => {
             const snail = snails[i];
             snail.color = e.target.value;
             refreshSnailMesh(snail, i, count);
-            saveCurrentConfigs();
+            updateSessionConfig(i, 'color', e.target.value);
         };
         configDiv.querySelectorAll('input[type="radio"]').forEach(radio => {
             radio.onchange = (e) => {
@@ -159,7 +162,7 @@ function updateSnailConfigs() {
                     snail.type = e.target.value;
                     snail.sensitivity = snail.type === 'A' ? SLOPE_SENSITIVITY_A : SLOPE_SENSITIVITY_B;
                     refreshSnailMesh(snail, i, count);
-                    saveCurrentConfigs();
+                    updateSessionConfig(i, 'type', e.target.value);
                 }
             };
         });
@@ -167,13 +170,21 @@ function updateSnailConfigs() {
     saveCurrentConfigs();
 }
 
+function updateSessionConfig(index, key, value) {
+    if (!currentSessionConfigs[index]) {
+        currentSessionConfigs[index] = {
+            name: `달팽이 ${index+1}`,
+            color: getRandomColor(index),
+            type: 'A'
+        };
+    }
+    currentSessionConfigs[index][key] = value;
+    saveCurrentConfigs();
+}
+
 function saveCurrentConfigs() {
-    const configs = snails.map(s => ({
-        name: s.name,
-        type: s.type,
-        color: s.color
-    }));
-    localStorage.setItem('snail-configs', JSON.stringify(configs));
+    // 현재 세션의 설정들을 localStorage에 동기화
+    localStorage.setItem('snail-configs', JSON.stringify(currentSessionConfigs));
 }
 
 function addSnail(index, color, type, total, name) {
@@ -237,14 +248,14 @@ function initHUD() {
     snailInfo.innerHTML = '';
     snails.forEach(snail => {
         const div = document.createElement('div');
-        div.className = 'flex items-center gap-4 text-sm';
+        div.className = 'flex items-center gap-2 text-sm';
         div.innerHTML = `
-            <div class="w-2.5 h-2.5 rounded-full shadow-sm" style="background-color: ${snail.color}"></div>
-            <div class="font-black min-w-[80px] text-[11px] tracking-widest text-slate-700 uppercase">${snail.name}</div>
-            <div class="w-40 bg-slate-100 h-1.5 rounded-full overflow-hidden">
+            <div class="w-2 h-2 rounded-full shadow-sm" style="background-color: ${snail.color}"></div>
+            <div class="font-black min-w-[50px] text-[10px] tracking-wider text-slate-700 uppercase truncate">${snail.name}</div>
+            <div class="w-20 bg-slate-100 h-1 rounded-full overflow-hidden">
                 <div class="progress-bar bg-blue-500 h-full transition-all duration-100" style="width: 0%"></div>
             </div>
-            <div class="speed-val font-mono text-[10px] text-slate-400 font-bold">0.0 m/s</div>
+            <div class="speed-val font-mono text-[9px] text-slate-400 font-bold min-w-[45px] text-right">0.0 m/s</div>
         `;
         snailInfo.appendChild(div);
         snail.hudElement = div;
